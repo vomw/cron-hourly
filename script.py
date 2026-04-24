@@ -81,7 +81,7 @@ def commit_and_push():
             print("No changes to commit")
             return False
         commit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        commit_message = f"Auto-fetch: {commit_timestamp}"
+        commit_message = commit_timestamp
         subprocess.run(
             ["git", "commit", "-m", commit_message], check=True, capture_output=True
         )
