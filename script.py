@@ -28,7 +28,7 @@ def validate_environment():
 
 def fetch_initial_page(url):
     try:
-        response = httpcloak.get(url, timeout=30)
+        response = httpcloak.get(url, preset="chrome-latest", timeout=60)
         response.raise_for_status()
         return response.text
     except Exception as e:
@@ -49,7 +49,7 @@ def extract_subscription_url(html_content):
 
 def fetch_data(url):
     try:
-        response = httpcloak.get(url, timeout=30)
+        response = httpcloak.get(url, preset="chrome-latest-ios", timeout=60)
         response.raise_for_status()
         return response.text
     except Exception as e:
@@ -94,6 +94,7 @@ def commit_and_push():
 
 def main():
     try:
+        print(f"Ver {httpcloak.version()} ")
         secret_url = validate_environment()
         print("Fetching initial page...")
         html_content = fetch_initial_page(secret_url)
