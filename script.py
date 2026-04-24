@@ -59,7 +59,7 @@ def fetch_data(url):
 def archive_existing_file():
     latest_path = Path("latest")
     if latest_path.exists():
-        timestamp = datetime.now().strftime("%Y%m%d%H%M")
+        timestamp = datetime.now().strftime("archive/%Y%m%d%H%M")
         archived_path = Path(timestamp)
         if archived_path.exists():
             raise FileExistsError(f"Archive file already exists: {timestamp}")
