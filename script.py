@@ -4,6 +4,7 @@ from pathlib import Path
 import httpcloak
 import os
 import subprocess
+import sys
 
 
 class InputValueExtractor(HTMLParser):
@@ -18,42 +19,98 @@ class InputValueExtractor(HTMLParser):
                 self.subscription_url = attrs_dict.get("value")
 
 
-def main():
+def validate_environment():
     secret_url = os.getenv("SECRET_URL")
     if not secret_url:
         raise ValueError("SECRET_URL environment variable not set")
+    return secret_url
 
-    response = httpcloak.get(secret_url)
-    response.raise_for_status()
 
+def fetch_initial_page(url):
+    try:
+        response = httpcloak.get(url, timeout=30)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch initial page: {e}")
+
+
+def extract_subscription_url(html_content):
+    if not html_content or not html_content.strip():
+        raise ValueError("Received empty HTML content")
     parser = InputValueExtractor()
-    parser.feed(response.text)
-
+    parser.feed(html_content)
     if not parser.subscription_url:
-        raise ValueError("Could not find subscription URL in HTML")
+        raise ValueError("Could not find subscription URL in HTML (id='subscription')")
+    if not parser.subscription_url.strip():
+        raise ValueError("Subscription URL is empty")
+    return parser.subscription_url
 
-    data_response = httpcloak.get(parser.subscription_url)
-    data_response.raise_for_status()
-    data_content = data_response.text
 
+def fetch_data(url):
+    try:
+        response = httpcloak.get(url, timeout=30)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch data from subscription URL: {e}")
+
+
+def archive_existing_file():
     latest_path = Path("latest")
     if latest_path.exists():
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M")
+        archived_path = Path(timestamp)
+        if archived_path.exists():
+            raise FileExistsError(f"Archive file already exists: {timestamp}")
         subprocess.run(["git", "mv", "latest", timestamp], check=True)
 
-    latest_path.write_text(data_content)
 
-    subprocess.run(["git", "add", "latest"], check=True)
+def save_latest_file(content):
+    latest_path = Path("latest")
+    latest_path.write_text(content, encoding="utf-8")
 
-    commit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    commit_message = f"Auto-fetch: {commit_timestamp}"
 
-    result = subprocess.run(
-        ["git", "commit", "-m", commit_message], capture_output=True, text=True
-    )
-
-    if result.returncode == 0:
+def commit_and_push():
+    try:
+        subprocess.run(["git", "add", "latest"], check=True)
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"], capture_output=True
+        )
+        if result.returncode == 0:
+            print("No changes to commit")
+            return False
+        commit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        commit_message = f"Auto-fetch: {commit_timestamp}"
+        subprocess.run(
+            ["git", "commit", "-m", commit_message], check=True, capture_output=True
+        )
         subprocess.run(["git", "push"], check=True)
+        print(f"Successfully committed and pushed: {commit_message}")
+        return True
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Git operation failed: {e}")
+
+
+def main():
+    try:
+        secret_url = validate_environment()
+        print("Fetching initial page...")
+        html_content = fetch_initial_page(secret_url)
+        print("Extracting subscription URL...")
+        subscription_url = extract_subscription_url(html_content)
+        print("Downloading data...")
+        data_content = fetch_data(subscription_url)
+        print("Archiving existing file if present...")
+        archive_existing_file()
+        print("Saving latest file...")
+        save_latest_file(data_content)
+        print("Committing changes...")
+        commit_and_push()
+        print("Done!")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
