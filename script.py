@@ -1,6 +1,7 @@
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
+import base64
 import httpcloak
 import os
 import subprocess
@@ -56,24 +57,35 @@ def fetch_data(url):
         raise RuntimeError(f"Failed to fetch data from subscription URL: {e}")
 
 
-def archive_existing_file():
-    latest_path = Path("latest")
-    if latest_path.exists():
-        timestamp = datetime.now().strftime("archive/%Y%m%d%H%M")
-        archived_path = Path(timestamp)
-        if archived_path.exists():
-            raise FileExistsError(f"Archive file already exists: {timestamp}")
-        subprocess.run(["git", "mv", "latest", timestamp], check=True)
-
-
 def save_latest_file(content):
     latest_path = Path("latest")
     latest_path.write_text(content, encoding="utf-8")
 
 
+def combine_with_existing_data(content):
+    all_path = Path("all")
+    if all_path.exists() and all_path.stat().st_size > 4:
+        with open("all", "r") as f:
+            encoded = f.read().strip()
+        all_decoded = base64.b64decode(encoded).decode("utf-8")
+        lines = set()
+        for line in all_decoded.splitlines():
+            if line.strip():
+                lines.add(line)
+        latest_decoded = base64.b64decode(content).decode("utf-8")
+        for line in latest_decoded.splitlines():
+            if line.strip():
+                lines.add(line)
+        combined = "\n".join(sorted(lines))
+        encoded_output = base64.b64encode(combined.encode("utf-8")).decode("utf-8")
+    else:
+        encoded_output = content
+    all_path.write_text(encoded_output, encoding="utf-8")
+
+
 def commit_and_push():
     try:
-        subprocess.run(["git", "add", "latest"], check=True)
+        subprocess.run(["git", "add", "latest", "all"], check=True)
         result = subprocess.run(
             ["git", "diff", "--cached", "--quiet"], capture_output=True
         )
@@ -102,10 +114,10 @@ def main():
         subscription_url = extract_subscription_url(html_content)
         print("Downloading data...")
         data_content = fetch_data(subscription_url)
-        print("Archiving existing file if present...")
-        archive_existing_file()
         print("Saving latest file...")
         save_latest_file(data_content)
+        print("Adding to existing data...")
+        combine_with_existing_data(data_content)
         print("Committing changes...")
         commit_and_push()
         print("Done!")
