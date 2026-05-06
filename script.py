@@ -63,27 +63,39 @@ def save_latest_file(content):
 
 
 def combine_with_existing_data(content):
+    url_count_latest = url_count_all = url_count_new = 0
     all_path = Path("all")
+    latest_decoded = base64.b64decode(content).decode("utf-8")
+    for _ in latest_decoded.splitlines():
+        if _.strip():
+            url_count_latest += 1
     if all_path.exists() and all_path.stat().st_size > 4:
         with open("all", "r") as f:
             encoded = f.read().strip()
         all_decoded = base64.b64decode(encoded).decode("utf-8")
+        for _ in all_decoded.splitlines():
+            if _.strip():
+                url_count_all += 1
         lines = set()
         for line in all_decoded.splitlines():
             if line.strip():
                 lines.add(line)
-        latest_decoded = base64.b64decode(content).decode("utf-8")
         for line in latest_decoded.splitlines():
             if line.strip():
                 lines.add(line)
+        url_count_new = len(lines) - url_count_all
+        url_count_all = len(lines)
         combined = "\n".join(sorted(lines))
         encoded_output = base64.b64encode(combined.encode("utf-8")).decode("utf-8")
     else:
+        url_count_all = url_count_new = url_count_latest
         encoded_output = content
     all_path.write_text(encoded_output, encoding="utf-8")
+    url_count = {"latest": url_count_latest, "all": url_count_all, "new": url_count_new}
+    return url_count
 
 
-def commit_and_push():
+def commit_and_push(url_count):
     try:
         subprocess.run(["git", "add", "latest", "all"], check=True)
         result = subprocess.run(
@@ -93,7 +105,7 @@ def commit_and_push():
             print("No changes to commit")
             return False
         commit_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        commit_message = commit_timestamp
+        commit_message = f"{commit_timestamp} all:{url_count['all']} latest:{url_count['latest']} new:{url_count['new']} "
         subprocess.run(
             ["git", "commit", "-m", commit_message], check=True, capture_output=True
         )
@@ -117,9 +129,9 @@ def main():
         print("Saving latest file...")
         save_latest_file(data_content)
         print("Adding to existing data...")
-        combine_with_existing_data(data_content)
+        url_count = combine_with_existing_data(data_content)
         print("Committing changes...")
-        commit_and_push()
+        commit_and_push(url_count)
         print("Done!")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
